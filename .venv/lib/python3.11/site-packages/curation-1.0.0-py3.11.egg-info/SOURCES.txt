@@ -1,0 +1,15 @@
+README.md
+setup.py
+collectory/__init__.py
+collectory/analysis.py
+collectory/collector.py
+collectory/config.py
+curation.egg-info/PKG-INFO
+curation.egg-info/SOURCES.txt
+curation.egg-info/dependency_links.txt
+curation.egg-info/entry_points.txt
+curation.egg-info/requires.txt
+curation.egg-info/top_level.txt
+tests/__init__.py
+tests/test_analysis.py
+tests/test_util.py
