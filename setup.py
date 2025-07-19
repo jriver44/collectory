@@ -10,7 +10,7 @@ setup(
     author_email = "jriver44@gmail.com",
     description = "A CLI colleciton tracker with analytics.",
     long_description=(here / "README.md").read_text(encoding="utf-8"),
-    long_description_content_type="text/markdown"
+    long_description_content_type="text/markdown",
     url="https://github.com/jriver44/collectory",
     packages=find_packages(exclude=["tests*", "api*"]),
     python_requires=">=3.8",

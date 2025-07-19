@@ -17,14 +17,18 @@ class TestAnalysis(unittest.TestCase):
         self.timestamp = "2025-06-26 10:00:00"
         
     def test_create_new_item(self):
-        create_new_item("Padron", self.items, "cigar", 2, self.timestamp)
+        create_new_item("Padron", self.items, "cigar", 2)
         self.assertEqual(len(self.items), 1)
         item = self.items[0]
         self.assertEqual(item['name'], 'Padron')
         self.assertEqual(item['category'], 'cigar')
         self.assertEqual(item['quantity'], 2)
-        self.assertEqual(item['time'], self.timestamp)
+        self.assertIn('time', item)
         
+        from datetime import datetime
+        parsed = datetime.strptime(item['time'], "%Y-%m-%d %H:%M:%S")
+        self.assertIsInstance(parsed, datetime)
+                
         uuid_obj = uuid.UUID(item['id'], version=4)
         self.assertEqual(str(uuid_obj), item['id'])
         
@@ -34,14 +38,14 @@ class TestAnalysis(unittest.TestCase):
         self.assertEqual(entry['quantity'], 8)
         
     def test_remove_item_decrement(self):
-        create_new_item("A", self.items, "book", 5, self.timestamp)
+        create_new_item("A", self.items, "book", 5)
         result = remove_item(self.items, 2, "A")
         self.assertTrue(result)
         self.assertEqual(len(self.items), 1)
         self.assertEqual(self.items[0]['quantity'], 3)
         
     def test_remove_item_entire(self):
-        create_new_item("B", self.items, "books", 2, self.timestamp)
+        create_new_item("B", self.items, "books", 2)
         result = remove_item(self.items, 2, "B")
         self.assertTrue(result)
         self.assertEqual(self.items, [])
@@ -52,8 +56,8 @@ class TestAnalysis(unittest.TestCase):
         
     def test_filter_by_category(self):
         
-        create_new_item("A", self.items, "book", 1, self.timestamp)
-        create_new_item("B", self.items, "cigar", 1, self.timestamp)
+        create_new_item("A", self.items, "book", 1)
+        create_new_item("B", self.items, "cigar", 1)
         result = filter_by_category(self.items, "book")
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]['name'], 'A')
@@ -61,9 +65,9 @@ class TestAnalysis(unittest.TestCase):
         self.assertCountEqual(all_items, self.items)
         
     def test_search_by_keyword(self):
-        create_new_item("Alpha", self.items, "misc", 1, self.timestamp)
-        create_new_item("Beta", self.items, "misc", 1, self.timestamp)
-        create_new_item("alphabet soup", self.items, "food", 1, self.timestamp)
+        create_new_item("Alpha", self.items, "misc", 1)
+        create_new_item("Beta", self.items, "misc", 1)
+        create_new_item("alphabet soup", self.items, "food", 1)
         result = search_by_keyword(self.items, "alph")
         names = [i['name'] for i in result]
         self.assertCountEqual(names, ["Alpha", "alphabet soup"])

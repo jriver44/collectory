@@ -59,8 +59,7 @@ def main():
                     increment_quantity(entry, quantity)
                     print_success(f"{quantity} added to '{name}'. New total: {entry['quantity']}")
                 else:
-                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    create_new_item(name, items, category, quantity, timestamp)
+                    create_new_item(name, items, category, quantity)
                     print_success(f"Created new item '{name}' x {quantity}.")
             elif choice == "2":
                 target = prompt_nonempty( "Enter name of item to remove: ")

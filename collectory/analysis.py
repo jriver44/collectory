@@ -29,13 +29,16 @@ def search_by_keyword(items, keyword):
             results.append(item)
     return results
 
-def create_new_item(name, items, category, quantity, timestamp):
-    items.append({"id": str(uuid.uuid4()),
+def create_new_item(name: str, items: list, category: str, quantity: int):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    item = {"id": str(uuid.uuid4()),
                  "name": name,
                  "category": category,
                  "quantity": quantity,
                  "time": timestamp
-                 })
+            }
+    items.append(item)
+    return item
     
 def get_category_distribution(items):
     dist = {}
