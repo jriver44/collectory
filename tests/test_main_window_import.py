@@ -20,12 +20,14 @@ def test_import_csv(tmp_path, qtbot, monkeypatch):
     )
     
     calls = []
-    import collectory.collector as collector
-    monkeypatch.setattr(
-        collector,
-        "create_new_item",
-        lambda **data: calls.append(data)
-    )
+    import gui.main_window as mw
+    def fake_create_new_item(**data):
+        calls.append({
+            "name": data["name"],
+            "category": data["category"],
+            "quantity": data["quantity"],
+        })
+    monkeypatch.setattr(mw, "create_new_item", fake_create_new_item)
     
     import api.services as services
     monkeypatch.setattr(services, "get_all_items", lambda: [])

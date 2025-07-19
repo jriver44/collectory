@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 
 from gui.add_item_dialog import AddItemDialog
 
+from datetime import datetime
 from collectory.collector import create_new_item
 
 class MainWindow(QMainWindow):
@@ -30,6 +31,8 @@ class MainWindow(QMainWindow):
         
         self.setWindowTitle("Curation")
         self.resize(800, 600)
+        
+        self._items: list[dict] = []
         
         toolbar = QToolBar("Main Toolbar")
         toolbar.setMovable(False)
@@ -76,9 +79,17 @@ class MainWindow(QMainWindow):
     def on_add_item(self):
         dlg = AddItemDialog(self)
         if dlg.exec() == QDialog.Accepted:
-            from collectory.collector import create_new_item
-            create_new_item(**dlg.data())
-            self.on_refresh()
+            items_list = self._items
+            data = dlg.data()
+            create_new_item(
+                name=data["name"],
+                items=items_list,
+                category=data["category"],
+                quantity=data["quantity"],
+            )
+            self._items = items_list
+            self._populate_table(self._items)
+            self.statusBar().showMessage(f"Added: {data['name']}")
         
     @Slot()
     def on_refresh(self):
@@ -87,6 +98,7 @@ class MainWindow(QMainWindow):
         
         try:
             items = services.get_all_items()
+            self._items = items
             self._populate_table(items)
             self.statusBar().showMessage(f"Loaded {len(items)} items")
         except Exception as e:
@@ -121,16 +133,19 @@ class MainWindow(QMainWindow):
         try:
             with open(path, newline="", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
-                imported = 0
+                imported_count = 0
+                
                 for row in reader:
                     create_new_item(
                         name=row.get("Name", "").strip(),
+                        items=self._items,
                         category=row.get("Category", "").strip(),
                         quantity=int(row.get("Quantity", 0)),
                     )
-                    imported += 1
-            self.on_refresh()
-            self.statusBar().showMessage(f"Imported {imported} item from {path}")
+                    imported_count += 1
+                    
+                self._populate_table(self._items)
+                self.statusBar().showMessage(f"Imported {imported_count} items from {path}")
             
         except Exception as e:
             QMessageBox.critical(self, "Import Failed", f"Could not read CSV:\n{e}")
@@ -147,7 +162,7 @@ class MainWindow(QMainWindow):
             return
         
         try:
-            items = services.get_all_items()
+            items = self._items if self._items else services.get_all_items()
             with open(path, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
                 writer.writerow(["ID", "Name", "Category", "Quantity", "Timestamp"])
