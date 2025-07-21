@@ -25,6 +25,9 @@ from gui.add_item_dialog import AddItemDialog
 from datetime import datetime
 from collectory.collector import create_new_item
 
+import json
+from pathlib import Path
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -39,6 +42,11 @@ class MainWindow(QMainWindow):
         self.addToolBar(toolbar)
         
         file_menu = QMenu("File", self)
+        
+        file_menu.addSeparator()
+        file_menu.addAction("Open", self.on_open)
+        file_menu.addAction("Save", self.on_save)
+        
         file_menu.addAction("Export to CSV", self.on_export)
         file_menu.addAction("Import from CSV", self.on_import)
         toolbar.addAction(file_menu.menuAction())
@@ -119,6 +127,41 @@ class MainWindow(QMainWindow):
             for column_index, text in enumerate(values):
                 cell = QStandardItem(text)
                 self.model.setItem(row_index, column_index, cell)
+                
+    def on_open(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open Collection",
+            "",
+            "JSON Files (*.json);;All Files (*)"
+        )
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                self._items = json.load(f)
+            self._populate_table(self._items)
+            self.statusBar().showMessage(f"Opened {Path(path).name}")
+        except Exception as e:
+            QMessageBox.critical(self, "Open Failed", f"Could not load JSON:\n{e}")
+            self.statusBar().showMessage("Open failed")
+            
+    def on_save(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Collection",
+            "",
+            "JSON Files (*.json);;All Files (*)"
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self._items, f, indent=2)
+            self.statusBar().showMessage(f"Saved to {Path(path).name}")
+        except Exception as e:
+            QMessageBox.critical(self, "Save Failed", f"Could not write JSON:\n{e}")
+            self.statusBar().showMessage("Save Failed")
                 
     def on_import(self):
         path, _ = QFileDialog.getOpenFileName(
