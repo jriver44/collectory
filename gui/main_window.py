@@ -17,7 +17,7 @@ from PySide6.QtGui import QAction, QStandardItemModel, QStandardItem
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QToolBar, QTableView, 
     QStatusBar, QVBoxLayout, QWidget, QDialog, QMenu,
-    QMessageBox, QFileDialog
+    QMessageBox, QFileDialog, QLineEdit, QComboBox
 )
 
 from gui.add_item_dialog import AddItemDialog
@@ -55,6 +55,17 @@ class MainWindow(QMainWindow):
         add_act.setStatusTip("Create a new item")
         add_act.triggered.connect(self.on_add_item)
         toolbar.addAction(add_act)
+        
+        self.search_edit = QLineEdit(self)
+        self.search_edit.setPlaceholderText("Search...")
+        toolbar.addWidget(self.search_edit)
+        
+        self.category_combo = QComboBox(self)
+        self.category_combo.addItem("All")
+        toolbar.addWidget(self.category_combo)
+        
+        self.search_edit.textChanged.connect(self.apply_filters)
+        self.category_combo.currentIndexChanged.connect(self.apply_filters)
         
         refresh_act = QAction("Refresh", self)
         refresh_act.setStatusTip("Reload items from API")
@@ -108,6 +119,12 @@ class MainWindow(QMainWindow):
             items = services.get_all_items()
             self._items = items
             self._populate_table(items)
+            
+            categories = sorted({item["category"] for item in self._items})
+            self.category_combo.clear()
+            self.category_combo.addItem("All")
+            self.category_combo.addItems(categories)
+            
             self.statusBar().showMessage(f"Loaded {len(items)} items")
         except Exception as e:
             self.statusBar().showMessage(f"Refresh failed: {e}")
@@ -221,6 +238,25 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Export Failed", f"Could not write CSV:\n{e}")
             self.statusBar().showMessage("Export failed")
+            
+    def apply_filters(self):
+        text = self.search_edit.text().strip()
+        cat = self.category_combo.currentText()
+        
+        results = list(self._items)
+        
+        if cat != "All":
+            from collectory.analysis import filter_by_category
+            results = filter_by_category(results, cat)
+            
+        if text:
+            from collectory.analysis import search_by_keyword
+            results = search_by_keyword(results, text)
+            
+        self._populate_table(results)
+        self.statusBar().showMessage(
+            f"Showing {len(results)} of {len(self.items)} items"
+        )
         
         
 if __name__ == "__main__":
