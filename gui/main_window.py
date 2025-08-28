@@ -1,12 +1,4 @@
-import os, sys,PySide6
-from PySide6.QtCore import QCoreApplication
-_VENV_PLUGINS = os.path.join(os.path.dirname(PySide6.__file__),
-                             "Qt", "plugins")
-paths = [os.getenv("QT_PLUGIN_PATH"),
-         
-         _VENV_PLUGINS]
-QCoreApplication.setLibraryPaths([p for p in paths if p])
-
+import sys
 import api.services as services
 import csv
 from PySide6.QtCore import Slot
@@ -254,8 +246,9 @@ class MainWindow(QMainWindow):
             results = search_by_keyword(results, text)
             
         self._populate_table(results)
+        
         self.statusBar().showMessage(
-            f"Showing {len(results)} of {len(self.items)} items"
+            f"Showing {len(results)} of {len(self._items)} items"
         )
         
         

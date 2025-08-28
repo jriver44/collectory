@@ -143,7 +143,7 @@ def main():
                 keyword = prompt_nonempty("Enter search keyword: ")
                 results = search_by_keyword(items, keyword)
                 if results:
-                    if isinstance(results, list) and results isinstance(results[0], dict):
+                    if isinstance(results, list) and results and isinstance(results[0], dict):
                         show_table(results)
                     else:
                         print(results)

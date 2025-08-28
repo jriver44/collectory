@@ -1,30 +1,30 @@
-import os
-import sys
-import PySide6
-import pytest
-from PySide6.QtCore import QCoreApplication
-from PySide6.QtWidgets import QApplication, QMessageBox
+# conftest.py
+import os, importlib.util, pytest
 
+# 1) Headless platform for tests (do this before importing PySide6)
 os.environ.setdefault("QT_QPA_PLATFORM", "minimal")
 
-if sys.platform == "darwin":
-    pyside_dir = os.path.dirname(PySide6.__file__)
-    qt_lib_dir = os.path.join(pyside_dir, "Qt", "lib")
-    os.environ.setdefault("DYLD_FRAMEWORK_PATH", qt_lib_dir)
-    os.environ.setdefault("DYLD_LIBRARY_PATH", qt_lib_dir)
-    
-pyside_dir = os.path.dirname(PySide6.__file__)
+# 2) Locate PySide6's plugin directories without importing it yet
+spec = importlib.util.find_spec("PySide6")
+if not spec or not spec.submodule_search_locations:
+    raise RuntimeError("PySide6 not found in current venv")
+pyside_dir = spec.submodule_search_locations[0]
 plugin_dir = os.path.join(pyside_dir, "Qt", "plugins")
-os.environ.setdefault("QT_PLUGIN_PATH", plugin_dir)
-os.environ.setdefault("QT_QPA_PLATFORM_PLUGIN_PATH", os.path.join(plugin_dir, "platforms"))
-QCoreApplication.setLibraryPaths([plugin_dir])
+platforms_dir = os.path.join(plugin_dir, "platforms")
 
-@pytest.fixture(scope="session", autouse=True)
-def qapp_session():
-    app = QApplication.instance()
-    if not app:
-        app = QApplication(sys.argv)
-    return app
+# 3) Provide plugin hints to Qt (env vars are read very early)
+os.environ.setdefault("QT_PLUGIN_PATH", plugin_dir)
+os.environ.setdefault("QT_QPA_PLATFORM_PLUGIN_PATH", platforms_dir)
+
+# 4) Now import Qt and non-destructively add library paths
+from PySide6.QtCore import QCoreApplication
+from PySide6.QtWidgets import QMessageBox
+for p in (plugin_dir, platforms_dir):
+    if p and p not in QCoreApplication.libraryPaths():
+        QCoreApplication.addLibraryPath(p)
+
+# IMPORTANT: don't force-create a QApplication for every test session.
+# Let pytest-qt create it only when a test asks for qapp/qtbot.
 
 @pytest.fixture(autouse=True)
 def patch_question(monkeypatch):
