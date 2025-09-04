@@ -4,7 +4,42 @@ Interactive terminal app for managing collections, with customizable
 categories. Provides CRUD operations, filtering/search, summaries of date/category
 distributions, and periodically autosaves with timestamped rotating backups.
 
-Usage:
+Reasponsibilies
+---------------
+    - Parse CLI args (REPL-only at the moment).
+    - Load the selected collection from the disk.
+    - Start/own the background autosave loop.
+    - Run the interactive REPL that calls into domain operations.
+    - Persist data with atomic writes + rotating backups.
+
+Relationships
+-------------
+Depends on:
+    - collectory.analysis: pure domain helpers (mutations, filters, and aggregation).
+    - collectory.config: file locations, autosave interval, and backup policy.
+    
+Used by:
+    - End userss directly via 'python -m ...' or the 'curation' entrypoint.
+    
+Persistence Boundry
+--------------------
+    - All disk I/O (load/save/backup rotation) happens here.
+    - Wirets use 'atomic_write()' with a module-wide '_save_lock' to seralize and writes
+    across threads and avoids partial/corrupt files.
+    
+Threading Model
+----------------
+    - One background daemon thread ('autosave_loop') that periodically calls 'save_items'. It cooperates
+    via '_save_lock'.
+    - The REPL runs on the main thread and all mutations to 'items' are done here.
+    - There is no exploit stop signal for autosave thread, and it ends when the interpreter shuts down.
+    
+CLI surface
+------------
+    - REPL menu (1-9). NO subcommands yet.
+    
+Usage
+-----
     $ curation
 """
 
@@ -21,7 +56,7 @@ from colorama import init, Fore, Style
 from tabulate import tabulate
 from typing import Optional, Tuple, List, Dict, Any
 
-# Domain logic and analysis helpers
+# Domain logic and analysis helpers (pure operations, no I/O)
 from collectory.analysis import ( 
     increment_quantity, 
     create_new_item, 
@@ -43,8 +78,19 @@ _save_lock = threading.Lock()
 TIME_FMT = "%Y-%m-%d %H:%M:%S"
 
 def main():
-    
-    """ Top level CLI: parses args, loads data, starts autosave, runs REPL loop"""
+    """ Top level CLI: parses args, loads data, starts autosave, runs REPL loop
+    Flow:
+        1) Parse CLI args (placeholder for future subcommands).
+        2) Prompt for a collection name and load items from disk.
+        3) Start a daemon autosave thread (interval from config).
+        4) Enter REPL (menu-driven), muatating in-memory 'items'.
+        5) On exit or interrupt, perform a final save.
+        
+        
+    Side Effects:
+        - Read/write files under 'config.DATA_DIR'.
+        - Spawns a deamon thread for autosave.
+    """
     parser = argparse.ArgumentParser(
         prog="curation",
         description="Curation: a CLI colleciton tracker with analytics."
@@ -173,9 +219,14 @@ def main():
 def atomic_write(fname: Path, data: Any) -> None:
     """Atomically write JSON to 'fname' using a temp file + replace.
     
-    Uses a module wide lock to serialize writes and avoid partial files.
-    
-
+    Atomic write protocol (POSIX-friendly):
+        1) Create a temp file in the same directory as 'fname' (ensures
+        'os.replace' is atomic on the same filesystem).
+        2) Dump JSON to the temp file and 'flush' + os.fsync' the descriptor.
+        3) 'os.replace(tmp,fname)' to swap in the new file automatically.
+        
+    Concurrency
+        - Protected by a module-wide '_save_lock' to avoid overlapping writes
     Args:
         fname (Path): Target JSON file path
         data (Any): JSON-serializable content. 
@@ -231,16 +282,34 @@ def atomic_write(fname: Path, data: Any) -> None:
 def autosave_loop(file_name: str, items: list) -> None:
     """Background loop that periodically saves the in-memory items.
     
-    Respects config.AUTOSAVE_ENABLED and sleeps for config.AUTOSAVE_INTERVAL seconds.
-    NOTE: No stop event so thread runs until interpreter shutdown.
+    Respects:
+        - feature flag 'config.AUTOSAVE_ENABLED'
+        - sleeps for 'config.AUTOSAVE_INTERVAL' seconds.
+        
+    Threading: 
+        - Runs forever as a daemon thread (no stop event).
+        - SYnchronizes with manual saves via '_save_lock'.
+        
+    Args:
+        file_name: Logical collection name (used to derive file paths).
+        items: The in-memory list of item dicts to persist.
     """
     while True:
         time.sleep(config.AUTOSAVE_INTERVAL)
         if config.AUTOSAVE_ENABLED:
             save_items(file_name, items)
-
+            
 def show_table(items: list) -> None:
-    """Print items as a grid table otherwise notify collection is empty."""
+    """Print items as a grid table, otherwise notify collection is empty.
+    
+    Columns: ID, Name, Category, Quantity, Time
+    
+    Args:
+        items: The current collection (list of dicts with the core fields).
+        
+    Side Effects:
+        Prints to stdout.
+    """
     if not items:
         print_error("No items in collection.")
         return
@@ -255,9 +324,23 @@ def show_table(items: list) -> None:
 def load_items(path: Path) -> list:
     """Load items from JSON file.
 
-    - If the file doesn't exist: return [] and warn.
-    - If JSON is corrupt: move the bad file aside with a timestamp and return [].
-    - If JSON is valid but not a list: warn and return [].
+    Behavior:
+        - If the file doesn't exist: return [] and warn.
+        - If JSON is corrupt: move the bad file aside with a timestamp and return [].
+        - If JSON is valid but not a list: warn and return [].
+        
+    Args:
+        path: Fully resolved path to the JSON collection.
+        
+    Returns:
+        A list of item dicts (possibly empty).
+        
+    Side Effects:
+        May rename a corrupt JSON file to '*_corrupt_<timestamp>.json'.
+        
+    Notes:
+        Function is intentionally forgiving to keep the CLI usable even if
+        the file is missing or damaged.
     """
     try:
         with path.open("r", encoding="utf-8") as f:
@@ -290,8 +373,20 @@ def load_items(path: Path) -> list:
 def save_items(file_name: str, items: list) -> bool:
     """Persist current items and write a timestamped backup. Rotates old backups afterwards.
 
+    Protocol (under '_save_lock'):
+        1) Write the main file '<file_name>.json' automatically.
+        2) Write a timestamped backup '<file_name>_<YYYYmmddTHHMMSS><suffix>.json'.
+        3) Prune old backups keeping the newest 'config.MAX_BACKUPS'.
+        
+    Args:
+        file_name: Logical collection name (determines filenames).
+        items: in-memory list of item dicts.
+        
     Returns:
-        True on success, False otherwise.
+        True on success (main save + backup + rotation), False otherwise. 
+        
+    Side Effects:
+        Writes/renames/deletes files in 'config.DATA_DIR'
     """
     with _save_lock:
         data_dir = config.DATA_DIR
@@ -309,7 +404,19 @@ def save_items(file_name: str, items: list) -> bool:
             return False
         
 def edit_category(items: list, target: str) -> bool:
-    """Prompt for an item name and update its 'category' field if found."""
+    """Update the 'category' field of the first item whose name matches 'target'.
+    
+    Args:
+        items: the collection (mutated in place).
+        target: name to match (case-insensitive).
+        
+    Returns:
+        True if the item was found and updated, False otherwise
+        
+    Side Effects:
+        Prompts the user for the new category if a match is found.
+    
+    """
     for item in items:
         if item['name'].lower() == target.lower():
             new_category = prompt_nonempty(f"Enter new category for {target}: ")
@@ -318,7 +425,19 @@ def edit_category(items: list, target: str) -> bool:
     return False
 
 def items_per_category(items):
-    """Print a count of items per category then returns True if any exist."""
+    """Print a count of *items* per category (not quantities of items themselves).
+    
+    Args:
+        items: current colleciton.
+        
+    Returns:
+        True if any categories were found (and printed), False if empty.
+        
+    Notes:
+        This function counts entries per category (one per item row), not the sum of 'wuantity'. 
+        Use 'get_category_distribution' for quantity totals.
+    
+    """
     categories_count = {}
     for item in items:
         category = item['category']
@@ -337,7 +456,14 @@ def items_per_category(items):
         return True
             
 def show_summary(items):
-    """Print high level summary: total items, by category, by time bucket"""
+    """Print a high-level summary: total items, by category, by time bucket.
+    
+    Prints:
+        - Total number of *rows* (len(itmes)).
+        - Category distribution (by *quantity*).
+        - Time distribution (by *quantity*, default monthly buckets).
+    
+    """
     print(f"Total items: {len(items)}")
     for category, quantity in get_category_distribution(items).items():
         print(f"    {category}: {quantity}")
@@ -345,13 +471,30 @@ def show_summary(items):
         print(f"    {period}: {quantity}")
         
 def _parse_time_or_none(s: str) -> Optional[datetime]:
+    """Parese 's' using TIME_FMT, returning None on failure (non-throwing).
+
+    Args:
+        s: a timestamp string in the expected TIME_FMT.
+
+    Returns:
+        A datetime if parsing succeeds, otherwise None.
+    """
     try:
         return datetime.strptime(s, TIME_FMT)
     except Exception:
         return None
     
 def oldest_newest(items: list) -> None:
-    """Print oldest and newest item by 'time' field (YYYY-mm-dd HH:MM:SS)."""
+    """Print oldest and newest item by 'time' field (YYYY-mm-dd HH:MM:SS).
+    
+    Behavior:
+        - Silently skips items with missing or invalid 'time'.
+        - If none are valid, prints a friendly error.
+        
+    Args:
+        items: current collection
+    
+    """
     if not items:
         print_error("No items in system to display.")
         return
@@ -369,6 +512,7 @@ def oldest_newest(items: list) -> None:
         print_error("No valid timestamps found on items.")
         return
     
+    # NOTE: update for consistency
     oldest_datetime, oldest_item = min(parsed, key=lambda p: p[0]) # NOTE: Consider formatting date output later 
     newest_datetime, newest_item = max(parsed, key=lambda p: p[0])
     
@@ -378,8 +522,20 @@ def oldest_newest(items: list) -> None:
 def rotate_backups(data_dir: Path, prefix: str, keep: int) -> bool:
     """Keep only the newest 'keep' backups for the given collection prefix.
     
+    Args:
+        data_dir: Directory containing the backups.
+        prefix: Collection base name used to backup filenames.
+        keep: Number of most-recent backups to retain.
+        
     Returns:
-        True if all deletions succeded, False otherwise.
+        True if all deletions succeeded, False otherwise.
+        
+    File Pattern:
+        '{prefix}_*{config.BACKUP_SUFFIX}.json'
+        
+    Notes:
+        - Files are sorted by modification time (newest first).
+        - Failures to delete are reported but not raised.
     """
     pattern = f"{prefix}_*{config.BACKUP_SUFFIX}.json"
     backups = sorted(
@@ -398,7 +554,17 @@ def rotate_backups(data_dir: Path, prefix: str, keep: int) -> bool:
     return success
 
 def prompt_positive_int(prompt: str) -> int:
-    """Prompt until a positive integer is entered."""
+    """Prompt until a positive integer is entered.
+    
+    Args:
+        prompt: String to display to the user.
+        
+    Returns:
+        A strictly positive integer (> 0).
+        
+    User Experience:
+        - On invalid input, prints an error and re-prompts for positive number.
+    """
     while True:
         resp = input(Fore.YELLOW + prompt).strip()
         try:
@@ -411,7 +577,14 @@ def prompt_positive_int(prompt: str) -> int:
             print_error("Not a number - try again")
             
 def prompt_nonempty(prompt: str) -> str:
-    """Prompt until a nonempty string is entered."""
+    """Prompt until a non-empty string is entered.
+    
+    Args:
+        prompt: String to display to the user.
+        
+    Returns:
+        The user's response (stripped), guaranteed non-empty.
+    """
     while True:
         resp = input(Fore.YELLOW + prompt).strip()
         if resp:
@@ -450,7 +623,14 @@ def display_menu() -> None:
     print(menu)
     
 def confirm_action(ok: bool, success_message: str, error_message: str | None = None) -> None:
-    """Utility to print success/error based on a boolean outcome."""
+    """Print success/error based on a boolean outcome.
+    
+    Args:
+        ok: Result flag.
+        success_message: Message to print when 'ok' is True.
+        error_message: Message to print when 'ok' is False (falls back to
+        'success_message' if None).
+    """
     if ok:
         print_success(success_message)
     else:
