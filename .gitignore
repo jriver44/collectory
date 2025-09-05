@@ -1,6 +1,7 @@
 # Virtualenv
 .venv/
 venv/
+venv-test/
 
 # Python bytecode
 __pycache__/
@@ -11,3 +12,5 @@ __pycache__/
 .vscode/
 .idea/
 .DS_Store
+
+*.log
