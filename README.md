@@ -17,6 +17,7 @@ The project is modular:
 - Filtering and search utilities.
 - Optional GUI for interactive management.
 - CSV import/export for interoperability.
+- Configurable autosave interval and backup rentention
 
 ---
 
@@ -74,8 +75,57 @@ The GUI is built with **PySide6** and provides:
 ## Running the API
 
 Start the REST server (from repo root):
+
     ```bash
     python -m api.server
     ```
 
 ## Running the GUI
+
+Launch the application:
+
+```bash
+python -m gui.main
+```
+
+## Development
+
+- Tests are in the tests/ directory (pytest).
+- Documentation in docs/.
+- Packaging is supported via setup.py
+
+## Roadmap / Future Development
+
+- Enchance search with fuzzy matching.
+- Add authentication layer to the API.
+- GUI: support editing and deleting items.
+- Cloud sync and remote collection sharing.
+- Packaging as a standalone desktop app (PyInstaller)
+- Extend schema to support tags, notes, and media attachment.
+- AI incorporation for recommendations based off users collection.
+
+## Sources & Acknowledgements
+
+Curation was built with refrence to the following resorces:
+
+1. Python pathlib docs - for filesystem operations.
+
+2. Python json docs - for persistent storage.
+
+3. PySide6 Documentation - GUI components.
+
+4. Qt Model/View Programming Guide - for table integration.
+
+5. FastAPI Docs - REST API framework.
+
+6. CSV Module Docs - CSV import/export support.
+
+7. pytest Documentation - testing framework.
+
+8. Packaging Python Projects (PyPA Guide) - for setup.py and wheels.
+
+9. GitHub Docs: Managing SSH Keys - used for repo setup.
+
+10. Stack Overflow discussions on PyInstaller + PySide6 plugin paths - for handling Qt plugin issues on Mac. 
+
+11. ChatGPT - documentation and formatting help.
