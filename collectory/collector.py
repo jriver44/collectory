@@ -1,10 +1,10 @@
 """ Curation CLI entrypoint
 
-Interactive terminal app for managing collections, with customizable
+Interactive terminal app for managing collections with customizable
 categories. Provides CRUD operations, filtering/search, summaries of date/category
 distributions, and periodically autosaves with timestamped rotating backups.
 
-Reasponsibilies
+Responsibilities
 ---------------
     - Parse CLI args (REPL-only at the moment).
     - Load the selected collection from the disk.
@@ -24,19 +24,18 @@ Used by:
 Persistence Boundry
 --------------------
     - All disk I/O (load/save/backup rotation) happens here.
-    - Wirets use 'atomic_write()' with a module-wide '_save_lock' to seralize and writes
+    - Writes use 'atomic_write()' with a module-wide '_save_lock' to seralize and writes
     across threads and avoids partial/corrupt files.
     
 Threading Model
 ----------------
     - One background daemon thread ('autosave_loop') that periodically calls 'save_items'. It cooperates
-    via '_save_lock'.
+    via '_save_lock' and can be stopped with '__stop_event_'.
     - The REPL runs on the main thread and all mutations to 'items' are done here.
-    - There is no exploit stop signal for autosave thread, and it ends when the interpreter shuts down.
     
 CLI surface
 ------------
-    - REPL menu (1-9). NO subcommands yet.
+    - REPL menu (1-9). No subcommands yet.
     
 Usage
 -----
@@ -74,6 +73,9 @@ init(autoreset=True)
 # Single lock for full program serialized writing to disk
 _save_lock = threading.Lock()
 
+# stop autosave loop cleanly on exit with one last atomic save
+_stop_event = threading.Event()
+
 # Timestamp format
 TIME_FMT = "%Y-%m-%d %H:%M:%S"
 
@@ -105,8 +107,8 @@ def main():
     items = load_items(path)
     
     # --- Autosave: background thread ----------------------------------
-    # Periodically writes the current items list to disk + backup
-    # NOTE: No stop event, thread runs until processes end
+    # Periodically writes the current items list to disk + backup. Uses
+    # Now uses a cooperative stop event so shutdown is deterministic
     t = threading.Thread(
         target=autosave_loop,
         args=(file_name, items),
@@ -207,7 +209,14 @@ def main():
         print(f"\n{Fore.CYAN}Interrupted, saving and exiting...")
         
     finally:
-        # --- Final save on exit --------------------------------------------
+        # --- Graceful shutdown -----------------------------------------------
+        # 1) Signal autosave loop to stop, 2) wait briefly for thread exit,
+        # 3) perform one last atomic save.
+        request_shutdown()
+        # Wait up to a tick for the autosave loop to observe the event
+        # (daemon=True means the process would exit anyway but keep it tidy)
+        t.join(timeout=config.AUTOSAVE_INTERVAL + 0.1)
+        
         print(Fore.CYAN + "Saving before exit...")
         ok = save_items(file_name, items)
         confirm_action(ok,
@@ -294,10 +303,12 @@ def autosave_loop(file_name: str, items: list) -> None:
         file_name: Logical collection name (used to derive file paths).
         items: The in-memory list of item dicts to persist.
     """
-    while True:
-        time.sleep(config.AUTOSAVE_INTERVAL)
+    while not _stop_event.wait(config.AUTOSAVE_INTERVAL):
         if config.AUTOSAVE_ENABLED:
             save_items(file_name, items)
+            
+def request_shutdown():
+    _stop_event.set()
             
 def show_table(items: list) -> None:
     """Print items as a grid table, otherwise notify collection is empty.
